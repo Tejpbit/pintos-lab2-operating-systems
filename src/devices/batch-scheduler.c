@@ -1,4 +1,4 @@
-/* Tests cetegorical mutual exclusion with different numbers of threads.
+/* Tests categorical mutual exclusion with different numbers of threads.
  * Automatic checks only catch severe problems like crashes.
  */
 #include <stdio.h>
@@ -33,20 +33,28 @@ void receiverPriorityTask(void *);
 
 
 void oneTask(task_t task);/*Task requires to use the bus and executes methods below*/
-	void getSlot(task_t task); /* task tries to use slot on the bus */
-	void transferData(task_t task); /* task processes data on the bus either sending or receiving based on the direction*/
-	void leaveSlot(task_t task); /* task release the slot */
+void getSlot(task_t task); /* task tries to use slot on the bus */
+void transferData(task_t task); /* task processes data on the bus either sending or receiving based on the direction*/
+void leaveSlot(task_t task); /* task release the slot */
+
+static int waiters[2];
+//static struct semaphore queue[2];
+static struct condition bus[2];
+static struct lock lock;
+static int running_tasks = 0;
 
 
 
-/* initializes semaphores */ 
-void init_bus(void){ 
- 
-    random_init((unsigned int)123456789); 
-    
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
 
+/* initializes semaphores */
+void init_bus(void){
+
+    random_init((unsigned int)123456789);
+    // sema_init(&queue[SENDER], BUS_CAPACITY);
+    // sema_init(&queue[RECEIVER], BUS_CAPACITY);
+    cond_init(&bus[SENDER]);
+    cond_init(&bus[RECEIVER]);
+    lock_init(&lock);
 }
 
 /*
@@ -54,7 +62,7 @@ void init_bus(void){
  *  sending data to the accelerator and num_task_receive + num_priority_receive tasks
  *  reading data/results from the accelerator.
  *
- *  Every task is represented by its own thread. 
+ *  Every task is represented by its own thread.
  *  Task requires and gets slot on bus system (1)
  *  process data and the bus (2)
  *  Leave the bus (3).
@@ -63,8 +71,12 @@ void init_bus(void){
 void batchScheduler(unsigned int num_tasks_send, unsigned int num_task_receive,
         unsigned int num_priority_send, unsigned int num_priority_receive)
 {
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
+    int i;
+    for (i = 0; i < 50; ++i)
+    {
+        thread_create("Sender", 0, senderTask, 0);
+        //thread_create("Receiver", 0, receiverTask, 0);
+    }
 }
 
 /* Normal task,  sending data to the accelerator */
@@ -100,22 +112,46 @@ void oneTask(task_t task) {
 
 
 /* task tries to get slot on the bus subsystem */
-void getSlot(task_t task) 
+void getSlot(task_t task)
 {
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
+    lock_acquire(&lock);
+    waiters[task.direction]++;
+
+    if (running_tasks >= BUS_CAPACITY)
+    {
+        cond_wait(&bus[task.direction], &lock);
+    }
+
+    running_tasks++;
+
+    waiters[task.direction]--;
+    lock_release(&lock);
+
 }
 
 /* task processes data on the bus send/receive */
-void transferData(task_t task) 
+void transferData(task_t task)
 {
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
+    printf("Thread transfer data\n");
+    timer_msleep (random_ulong() % 3000);
+    printf("Thread transfer data done\n");
 }
 
 /* task releases the slot */
-void leaveSlot(task_t task) 
+void leaveSlot(task_t task)
 {
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
+    lock_acquire(&lock);
+
+    running_tasks--;
+
+    if (waiters[task.direction] > 0)
+    {
+        // cond_signal (&bus[task.direction], &lock);
+    }
+    else if (waiters[task.direction] == 0)
+    {
+        //cond_broadcast (&bus[1-task.direction], &lock);
+    }
+
+    lock_release(&lock);
 }
