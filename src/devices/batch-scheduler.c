@@ -37,23 +37,23 @@ void getSlot(task_t task); /* task tries to use slot on the bus */
 void transferData(task_t task); /* task processes data on the bus either sending or receiving based on the direction*/
 void leaveSlot(task_t task); /* task release the slot */
 
-static int waiters[2];
-//static struct semaphore queue[2];
-static struct condition bus[2];
+static struct semaphore bus;
+static struct semaphore waiting_prio[2];
+static struct semaphore waiting[2];
 static struct lock lock;
-static int running_tasks = 0;
-
-
-
+static int direction = 0;
 
 /* initializes semaphores */
 void init_bus(void){
-
     random_init((unsigned int)123456789);
-    // sema_init(&queue[SENDER], BUS_CAPACITY);
-    // sema_init(&queue[RECEIVER], BUS_CAPACITY);
-    cond_init(&bus[SENDER]);
-    cond_init(&bus[RECEIVER]);
+
+    sema_init(&bus, BUS_CAPACITY);
+
+    sema_init(&waiting_prio[SENDER]);
+    sema_init(&waiting_prio[RECEIVER]);
+    sema_init(&waiting[SENDER]);
+    sema_init(&waiting[RECEIVER]);
+
     lock_init(&lock);
 }
 
@@ -81,26 +81,26 @@ void batchScheduler(unsigned int num_tasks_send, unsigned int num_task_receive,
 
 /* Normal task,  sending data to the accelerator */
 void senderTask(void *aux UNUSED){
-        task_t task = {SENDER, NORMAL};
-        oneTask(task);
+    task_t task = {SENDER, NORMAL};
+    oneTask(task);
 }
 
 /* High priority task, sending data to the accelerator */
 void senderPriorityTask(void *aux UNUSED){
-        task_t task = {SENDER, HIGH};
-        oneTask(task);
+    task_t task = {SENDER, HIGH};
+    oneTask(task);
 }
 
 /* Normal task, reading data from the accelerator */
 void receiverTask(void *aux UNUSED){
-        task_t task = {RECEIVER, NORMAL};
-        oneTask(task);
+    task_t task = {RECEIVER, NORMAL};
+    oneTask(task);
 }
 
 /* High priority task, reading data from the accelerator */
 void receiverPriorityTask(void *aux UNUSED){
-        task_t task = {RECEIVER, HIGH};
-        oneTask(task);
+    task_t task = {RECEIVER, HIGH};
+    oneTask(task);
 }
 
 /* abstract task execution*/
@@ -114,19 +114,21 @@ void oneTask(task_t task) {
 /* task tries to get slot on the bus subsystem */
 void getSlot(task_t task)
 {
-    lock_acquire(&lock);
-    waiters[task.direction]++;
-
-    if (running_tasks >= BUS_CAPACITY)
-    {
-        cond_wait(&bus[task.direction], &lock);
+    if (bus->value == BUS_CAPACITY) {
+        direction = task->direction;
     }
 
-    running_tasks++;
+    cond_wait(direction, lock);
 
-    waiters[task.direction]--;
-    lock_release(&lock);
-
+    if (task->priority == HIGH) {
+        if (bus->value == 0 || task->direction != direction) {
+            sema_down(&waiting_prio[task->direction]);
+        }
+    } else {
+        if (bus->value == 0 || task->direction != direction) {
+            sema_down(&waiting[task->direction]);
+        }
+    }
 }
 
 /* task processes data on the bus send/receive */
@@ -140,18 +142,26 @@ void transferData(task_t task)
 /* task releases the slot */
 void leaveSlot(task_t task)
 {
+    // lock_acquire(&lock);
+
+    sema_up(&bus);
+
     lock_acquire(&lock);
-
-    running_tasks--;
-
-    if (waiters[task.direction] > 0)
-    {
-        // cond_signal (&bus[task.direction], &lock);
+    if (list_size(waiting_prio[1-task->direction]->waiters) > 0
+            && list_size(waiting_prio[task->direction]->waiters) == 0) {
+        direction = 1 - direction;
     }
-    else if (waiters[task.direction] == 0)
-    {
-        //cond_broadcast (&bus[1-task.direction], &lock);
-    }
-
     lock_release(&lock);
+
+    if (list_size(waiting_prio[task->direction]->waiters) > 0) {
+        sema_up(&waiting_prio[task->direction]);
+    } else if (list_size(waiting_prio[1-task->direction]->waiters) > 0) {
+        sema_up(&waiting_prio[1-task->direction]);
+    } else if (list_size(waiting[task->direction]->waiters) > 0) {
+        sema_up(&waiting[task->direction]);
+    } else if (list_size(waiting[1-task->direction]->waiters) > 0) {
+        sema_up(&waiting[1-task->direction]);
+    }
+
+    // lock_release(&lock);
 }
