@@ -42,19 +42,27 @@ static struct semaphore waiting_prio[2];
 static struct semaphore waiting[2];
 static struct lock lock;
 static int direction = 0;
+static struct condition condDirection;
+
+static struct lock printLock;
 
 /* initializes semaphores */
 void init_bus(void){
+    printf("bus_init\n");
+    print_thread_count();
     random_init((unsigned int)123456789);
 
     sema_init(&bus, BUS_CAPACITY);
 
-    sema_init(&waiting_prio[SENDER]);
-    sema_init(&waiting_prio[RECEIVER]);
-    sema_init(&waiting[SENDER]);
-    sema_init(&waiting[RECEIVER]);
+    sema_init(&waiting_prio[SENDER], 0);
+    sema_init(&waiting_prio[RECEIVER], 0);
+    sema_init(&waiting[SENDER], 0);
+    sema_init(&waiting[RECEIVER], 0);
+
+    cond_init(&condDirection);
 
     lock_init(&lock);
+    lock_init(&printLock);
 }
 
 /*
@@ -72,10 +80,11 @@ void batchScheduler(unsigned int num_tasks_send, unsigned int num_task_receive,
         unsigned int num_priority_send, unsigned int num_priority_receive)
 {
     int i;
-    for (i = 0; i < 50; ++i)
+    for (i = 0; i < 3; ++i)
     {
-        thread_create("Sender", 0, senderTask, 0);
-        //thread_create("Receiver", 0, receiverTask, 0);
+        char name[5];
+        snprintf(name, 5, "SN%02d", i);
+        thread_create(name, 0, senderTask, 0);
     }
 }
 
@@ -110,58 +119,60 @@ void oneTask(task_t task) {
   leaveSlot(task);
 }
 
-
 /* task tries to get slot on the bus subsystem */
 void getSlot(task_t task)
 {
-    if (bus->value == BUS_CAPACITY) {
-        direction = task->direction;
-    }
-
-    cond_wait(direction, lock);
-
-    if (task->priority == HIGH) {
-        if (bus->value == 0 || task->direction != direction) {
-            sema_down(&waiting_prio[task->direction]);
+    bool bus_available = false;
+    while(!bus_available) {
+        if (bus.value == 0) { // Bus full, block until slot available
+            if (task.priority == HIGH) {
+                sema_down(&waiting_prio[task.direction]);
+            } else {
+                sema_down(&waiting[task.direction]);
+            }
         }
-    } else {
-        if (bus->value == 0 || task->direction != direction) {
-            sema_down(&waiting[task->direction]);
+        lock_acquire(&lock);
+        if (task.direction != direction) { // Wrong direction, block until my direction
+            if (bus.value == BUS_CAPACITY) { // Edge case: If i'm first, dictate the direction
+                direction = task.direction;
+            }
+            cond_wait(&condDirection, &lock);
         }
+        lock_release(&lock);
+        bus_available = sema_try_down(&bus);
+        printf("bus_available %d\n", bus_available);
     }
 }
 
 /* task processes data on the bus send/receive */
 void transferData(task_t task)
 {
-    printf("Thread transfer data\n");
-    timer_msleep (random_ulong() % 3000);
-    printf("Thread transfer data done\n");
+    printf("Begin (%s)\n", thread_current ()->name);
+    timer_sleep (10);
+    printf("Done (%s)\n", thread_current ()->name);
 }
 
 /* task releases the slot */
 void leaveSlot(task_t task)
 {
-    // lock_acquire(&lock);
-
     sema_up(&bus);
 
     lock_acquire(&lock);
-    if (list_size(waiting_prio[1-task->direction]->waiters) > 0
-            && list_size(waiting_prio[task->direction]->waiters) == 0) {
+    if (bus.value == BUS_CAPACITY)
+    {
         direction = 1 - direction;
     }
     lock_release(&lock);
 
-    if (list_size(waiting_prio[task->direction]->waiters) > 0) {
-        sema_up(&waiting_prio[task->direction]);
-    } else if (list_size(waiting_prio[1-task->direction]->waiters) > 0) {
-        sema_up(&waiting_prio[1-task->direction]);
-    } else if (list_size(waiting[task->direction]->waiters) > 0) {
-        sema_up(&waiting[task->direction]);
-    } else if (list_size(waiting[1-task->direction]->waiters) > 0) {
-        sema_up(&waiting[1-task->direction]);
+    if (list_size(&waiting_prio[task.direction].waiters) > 0) {
+        sema_up(&waiting_prio[task.direction]);
+    } else if (list_size(&waiting_prio[1-task.direction].waiters) > 0) {
+        sema_up(&waiting_prio[1-task.direction]);
+    } else if (list_size(&waiting[task.direction].waiters) > 0) {
+        sema_up(&waiting[task.direction]);
+    } else if (list_size(&waiting[1-task.direction].waiters) > 0) {
+        sema_up(&waiting[1-task.direction]);
     }
 
-    // lock_release(&lock);
+    print_thread_count();
 }

@@ -20,6 +20,9 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* List of semaphores for blocked threads */
+static struct list blocked_threads;
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&blocked_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,8 +96,11 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   thread_current ()->time_to_block = ticks;
   enum intr_level old_level = intr_disable ();
-  thread_block ();
+  printf("Will sleep %s\n", &thread_current ()->name);
+  list_push_front(&blocked_threads, &thread_current ()->block_elem);
   intr_set_level (old_level);
+
+  sema_down(&thread_current ()->block_sema);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -159,37 +166,44 @@ timer_ndelay (int64_t ns)
   real_time_delay (ns, 1000 * 1000 * 1000);
 }
 
-void
-check_time (struct thread *thread, void *aux UNUSED)
-{
-  if (thread->status != THREAD_BLOCKED)
-  {
-    return;
-  }
-  if (thread->time_to_block <= 0 )
-  {
-    thread_unblock(thread);
-  }
-  else
-  {
-    thread->time_to_block -= 1;
-  }
-}
-
 /* Prints timer statistics. */
 void
 timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
+
+static int nummer = 0;
+
 //
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  thread_foreach(check_time, ((void*) 0));
+  struct list_elem *e;
   ticks++;
   thread_tick ();
+
+  for (e = list_begin (&blocked_threads);
+       e != list_end (&blocked_threads); )
+  {
+    struct thread *t;
+    t = list_entry (e, struct thread, block_elem);
+
+    t->time_to_block--;
+    if (t->time_to_block == 0LL)
+    {
+      printf("VAKNA FOFAN %s %d\n", t->name, ++nummer);
+      sema_up (&t->block_sema);
+      e = list_remove (e);
+      printf("Length %d\n", list_size(&blocked_threads));
+    }
+    else
+    {
+      e = list_next (e);
+    }
+  }
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
