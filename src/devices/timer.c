@@ -96,7 +96,7 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   thread_current ()->time_to_block = ticks;
   enum intr_level old_level = intr_disable ();
-  printf("Will sleep %s\n", &thread_current ()->name);
+  // printf("Will sleep %s for %"PRId64" ticks\n", &thread_current ()->name, ticks);
   list_push_front(&blocked_threads, &thread_current ()->block_elem);
   intr_set_level (old_level);
 
@@ -191,12 +191,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
     t = list_entry (e, struct thread, block_elem);
 
     t->time_to_block--;
-    if (t->time_to_block == 0LL)
+    if (t->time_to_block == 0)
     {
-      printf("VAKNA FOFAN %s %d\n", t->name, ++nummer);
+      // printf("VAKNA FOFAN %s %d\n", t->name, ++nummer);
       sema_up (&t->block_sema);
       e = list_remove (e);
-      printf("Length %d\n", list_size(&blocked_threads));
     }
     else
     {
