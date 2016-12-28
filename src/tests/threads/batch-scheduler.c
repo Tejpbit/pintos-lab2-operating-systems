@@ -34,10 +34,10 @@ void test_batch_scheduler(void)
     batchScheduler(0, 10, 0, 10);
     batchScheduler(0, 10, 10, 0);
 
-    // batchScheduler(40, 30, 0, 0);
-    // timer_sleep((int64_t)5000);
-    // printf("nu sov jag\n");
-    // batchScheduler(0, 0, 11, 12);
+    batchScheduler(40, 30, 0, 0);
+    timer_sleep((int64_t)5000);
+    printf("Scheduling some more priorities\n");
+    batchScheduler(0, 0, 11, 12);
 
     while(get_thread_count() - start_count > 0)
     {

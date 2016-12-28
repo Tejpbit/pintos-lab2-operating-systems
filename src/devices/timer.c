@@ -173,8 +173,6 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-static int nummer = 0;
-
 //
 /* Timer interrupt handler. */
 static void
@@ -190,15 +188,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
     struct thread *t;
     t = list_entry (e, struct thread, block_elem);
 
-    t->time_to_block--;
+
     if (t->time_to_block == 0)
     {
-      // printf("VAKNA FOFAN %s %d\n", t->name, ++nummer);
       sema_up (&t->block_sema);
       e = list_remove (e);
     }
     else
     {
+      t->time_to_block--;
       e = list_next (e);
     }
   }
