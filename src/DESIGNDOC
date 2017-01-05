@@ -189,7 +189,7 @@ We managed to debug our way out of it whilst discussing with other groups. But m
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
 
-We found it wierd that the list implementation requires a element member for each list the struct was to be used in. So when we wanted to have a list of all blocked threads we had to extend the original thread struct witha new elem member.
+We found it wierd that the list implementation requires a element member for each list the struct was to be used in. So when we wanted to have a list of all blocked threads we had to extend the original thread struct with a new elem member.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
