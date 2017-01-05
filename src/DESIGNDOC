@@ -30,26 +30,74 @@ Niklas Tegnander <nikteg@student.chalmers.se>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+	struct thread
+		{
+			/* Owned by thread.c. */
+			tid_t tid;                          /* Thread identifier. */
+1			int64_t time_to_block;              /* Time to block */
+2			struct semaphore block_sema;        /* Semaphore used to block thread */
+			enum thread_status status;          /* Thread state. */
+			char name[16];                      /* Name (for debugging purposes). */
+			uint8_t *stack;                     /* Saved stack pointer. */
+			int priority;                       /* Priority. */
+3			struct list_elem block_elem;
+			struct list_elem allelem;           /* List element for all threads list. */
+
+			/* Shared between thread.c and synch.c. */
+			struct list_elem elem;              /* List element. */
+
+	#ifdef USERPROG
+			/* Owned by userprog/process.c. */
+			uint32_t *pagedir;                  /* Page directory. */
+	#endif
+
+			/* Owned by thread.c. */
+			unsigned magic;                     /* Detects stack overflow. */
+		};
+
+1) The amount of ticks the thread should be blocked.
+2) Semaphore used to put the thread in a blocked state.
+3) Required by the linked list implementation.
+
+	/* List of semaphores for blocked threads */
+	static struct list blocked_threads;
+
+Keep a list of all the blocked threads.
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+The current thread is put in the list of blocked threads with its time_to_block set to the amount given in the argument
+and is then blocked by its semaphore.
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+
+One thing is that we only iterate over the blocked threads.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+Interrupts are disabled in the critical section of the function call.
+When they are disabled the scheduler can not switch to another thread.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+Interrupts are disabled in the critical section of the function call.
+When they are disabled the scheduler can not switch to another thread.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+We wanted to avoid iterating over every thread and therefore chose to have the blocked threads in a list.
+We used semaphores in the block implementation, because these are atomic and avoids potential synchronization issues.
 
 			    BATCH SCHEDULING
 			    ================
@@ -59,26 +107,71 @@ Niklas Tegnander <nikteg@student.chalmers.se>
 >> `struct' member, global or static variable, semaphore, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+	static struct semaphore bus;
+
+Bus semaphore used to limit the currently running tasks on the bus to BUS_CAPACITY.
+
+	static struct semaphore waiting_prio[2];
+
+Two semaphores (for each direction) for priority tasks.
+
+	static struct semaphore waiting[2];
+
+Two semaphores (for each direction) for normal tasks.
+
+	static struct lock lock;
+
+Lock used to ensure not leaving the critical section when checking critical values.
+
+	static int direction = 0;
+
+The current direction (send/receive)
+
+	static int batchNum;
+	static int started = 0, ended = 0, transfers = 0;
+
+Only used for printing/debugging purposes.
+
 ---- SYNCHRONIZATION ----
 
 >> C1: How does your solution guarantee that no more that 3 tasks
 >> are using the bus in the same direction?
 
+A task does not enter the bus semaphore if its direction is not the same as the bus' direction
+and the bus semaphore ensures that it wont be more than 3 tasks on the bus simultaneously.
+
 >> C2: What prevents tasks from opposite directions from using the
 >> bus simultaneously?
+
+It is checked in the getSlot function, using locks to ensure correct checks.
 
 >> C3: How does your solution grant priority to high priority tasks over
 >> the waiting tasks in the same direction?
 
+When the task tries to acquire a slot, it checks if there are higher priority tasks waiting. If there are, it releases
+the lock and lets the higher priority tasks have the slot.
+
+Also, when a task has left its slot, it checks whether there are more tasks waiting and wakes them up in the order
+of priority.
+
 >> C4: How do you guarantee that despite having priority, high priority
 >> tasks do not start using the bus while there are still still using
 >> it in the oposite direction?
+
+A task cannot acquire a slot if its direction is not the same as the bus', this is checked whilst using
+locks to make sure that the direction cannot change during the critical section.
 
 ---- RATIONALE ----
 
 >> C6: Why did you choose this design? Did you consider other design
 >> alternatives? In what ways is it superior to another design you considered?
 
+We first tried to not have the getSlot function care about whether there are priority tasks in the same direction
+as us, and rather have the leaveSlot function take care of that but we discovered that new tasks can be started
+after the "responsible" task's leaveSlot.
+
+We considered using a conditional variable for the direction, but found out it was not needed in our implementation.
+We also considered using conditional variables for the "waiting queues", but chose to use plain semaphores instead.
 
 			   SURVEY QUESTIONS (optional)
 			   ===========================
